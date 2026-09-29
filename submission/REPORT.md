@@ -9,7 +9,7 @@
 - **Lớp:** K4-L3A
 - **Repository URL:** https://github.com/PhTh1789/K4-L3-DAY13-NguyenPhatThinh-2A202602645-Monitoring-LLMOps
 - **Commit SHA cuối:**
-- **Challenge ID:**
+- **Challenge ID:** `day13-k4-l3a-monitoring-llmops-v1`
 - **Tên project Langfuse cá nhân:** `day13-k4-l3a-2A202602645`
 
 ## 2. Evidence index
@@ -38,12 +38,12 @@
 | Nội dung                | Baseline    | Kết quả cuối | Nhận xét |
 | ----------------------- | ----------- | ------------ | -------- |
 | `validate_logs.py`      | 30/100      | 100/100      | Đạt điểm tuyệt đối sau khi hoàn thiện CP1 |
-| `validate_dashboard.py` | 6/6 panel   |              |          |
-| `pytest`                | 22 passed   |              |          |
-| Số traces hợp lệ        | 10          |              |          |
-| Số PII leak             | 0           |              |          |
-| Latency P95 / TTFT P95  | 1455ms/50ms |              |          |
-| Retrieval success rate  | 100%        |              |          |
+| `validate_dashboard.py` | 6/6 panel   | 6/6 panel    | Đạt chuẩn 6 panel theo dashboard.yaml |
+| `pytest`                | 22 passed   | 22 passed    | Toàn bộ unit tests pass 100% |
+| Số traces hợp lệ        | 10          | 15+          | Tracing cá nhân đầy đủ root, retriever, generation |
+| Số PII leak             | 0           | 0            | Scrub sạch sẽ Email, SĐT, CCCD, Thẻ qua regex đệ quy |
+| Latency P95 / TTFT P95  | 1455ms/50ms | 151ms/50ms   | Trạng thái bình thường; lúc incident P95 nhảy lên 2652ms |
+| Retrieval success rate  | 100%        | 100%         | Truy xuất corpus thành công |
 
 ## 4. Logging và PII
 
@@ -89,31 +89,53 @@
 
 ## 7. Điều tra challenge
 
-- **Challenge ID:**
-- **Khoảng thời gian điều tra:**
-- **Triệu chứng từ metrics:**
+- **Challenge ID:** `day13-k4-l3a-monitoring-llmops-v1` (Cohort K4)
+- **Khoảng thời gian điều tra:** 2026-09-29T10:39:51Z – 2026-09-29T10:40:23Z (khoảng 17:39:51 – 17:40:23 GMT+7).
+- **Triệu chứng từ metrics:** Panel 1 (`Latency percentiles and TTFT`) trên Dashboard ghi nhận độ trễ P95 tăng vọt từ mức bình thường ~150ms lên **2652ms – 3719ms**, vượt ngưỡng SLO `2000ms` và vi phạm ngưỡng cảnh báo. Trong khi đó, TTFT P95 vẫn giữ ở mức thấp ~50ms, cho thấy nguyên nhân chậm trễ không phải do LLM generation mà xuất phát từ giai đoạn tiền xử lý retrieval.
 - **Log line và correlation ID liên quan:**
+  - `correlation_id`: `req-f01c9cdb` (cùng chùm request bị ảnh hưởng: `req-1289700d`, `req-26a54828`, `req-9529fa2e`, `req-21efa620`).
+  - Dòng log trích xuất từ `data/logs.jsonl`:
+    ```json
+    {"service": "api", "latency_ms": 2652, "ttft_ms": 50, "tokens_in": 35, "tokens_out": 86, "cost_usd": 0.001395, "quality_score": 0.8, "tool_name": "retrieval", "tool_success": true, "payload": {"answer_preview": "Starter answer. You should improve this output logic and add better quality chec..."}, "event": "response_sent", "env": "dev", "correlation_id": "req-f01c9cdb", "feature": "monitoring", "model": "claude-sonnet-4-5", "user_id_hash": "ed72e61117f6", "session_id": "k4-l3a-challenge-s05", "level": "info", "ts": "2026-09-29T10:40:05.111777Z"}
+    ```
 - **Trace ID và span gây ảnh hưởng:**
+  - Trace tương ứng trên Langfuse có metadata `correlation_id = req-f01c9cdb` (Session: `k4-l3a-challenge-s05`, Tag: `monitoring`).
+  - Phân tích cây Waterfall Observation Tree: Root span `lab-agent-run` có tổng latency là `2652ms`. Trong đó, child span **`retrieval`** (type: `retriever`) chiếm tới **2500ms** (~94% tổng thời gian request), trong khi child span `generation` chỉ tốn **150ms**. Span `retrieval` chính là điểm nghẽn (bottleneck) trực tiếp gây ra sự cố độ trễ.
 - **Root cause:**
+  - Tầng truy xuất tài liệu (RAG retrieval / Vector Store) bị nghẽn (mô phỏng bởi sự cố `rag_slow` gây sleep 2.5s trong hàm `retrieve()`), khiến pipeline phải chờ lâu để nạp context tài liệu trước khi gửi prompt đến LLM.
 - **Fix action:**
+  - 1. Ngay lập tức áp dụng **Request Timeout** nghiêm ngặt cho vector store (tối đa 800ms).
+  - 2. Kích hoạt cơ chế **Circuit Breaker** và **Degraded Mode**: Nếu retriever không phản hồi trong ngưỡng cho phép hoặc bị lỗi, tự động fallback sang context tĩnh mặc định hoặc trả về câu trả lời tổng quát không có RAG để giải phóng request ngay cho người dùng thay vì treo kết nối.
+  - 3. Triển khai **In-Memory Cache (Redis / Local LRU Cache)** cho các câu truy vấn phổ biến để giảm tải trực tiếp cho vector store.
 - **Preventive measure:**
+  - 1. Bổ sung metric và cảnh báo chuyên biệt cho tầng Retriever: Alert khi `retriever_latency_p95 > 800ms` kéo dài trên 2 phút.
+  - 2. Scale-up vector database, cấu hình read replicas để phân tải truy vấn đọc khi lưu lượng người dùng tăng cao.
+  - 3. Thực hiện kiểm thử tải (Stress Testing / Chaos Engineering) định kỳ với kịch bản vector store chậm để bảo đảm hệ thống luôn graceful degradation (xuống cấp mềm mượt) mà không vi phạm SLO toàn hệ thống.
 
 ## 8. Giải thích và tự đánh giá
 
-- **Một quyết định kỹ thuật quan trọng và lý do:**
-- **Một lỗi/blocker đã gặp:**
-- **Cách tìm nguyên nhân và xử lý:**
+- **Một quyết định kỹ thuật quan trọng và lý do:** Quyết định kết hợp `contextvars` trong `CorrelationIdMiddleware` với processor `scrub_event` trong `structlog`:
+  - `contextvars` bảo đảm tính phân lập (thread-safe/task-safe) giữa các request đồng thời trong FastAPI async loop, tránh việc correlation ID của request này bị ghi đè sang request khác.
+  - `scrub_event` duyệt đệ quy toàn bộ cấu trúc event và payload để khử PII (CCCD, SĐT, Email, Thẻ tín dụng) ngay tại pipeline trước khi log được render ra JSON hay ghi vào file, bảo đảm dữ liệu ghi xuống đĩa và hiển thị trên console luôn an toàn theo chuẩn bảo mật và tuân thủ GDPR/quy định bảo vệ dữ liệu cá nhân.
+- **Một lỗi/blocker đã gặp:** Khi chạy đồng thời nhiều request trong load test, một số trường context metadata của request trước có nguy cơ bị giữ lại nếu không dọn dẹp biến ngữ cảnh.
+- **Cách tìm nguyên nhân và xử lý:** Đọc tài liệu của `structlog.contextvars` và gọi hàm `clear_contextvars()` ngay tại dòng đầu tiên của `CorrelationIdMiddleware` trước khi tiến hành bind ID mới. Điều này đảm bảo mỗi request bắt đầu với một context hoàn toàn sạch sẽ.
 - **Cách hiểu luồng Metrics → Logs → Traces:**
+  - *Metrics:* Đóng vai trò là chuông báo động (Symptom Detection) - cho biết **CÁI GÌ** đang bất thường và **KHI NÀO** (ví dụ: P95 Latency vọt lên 2.6s lúc 17:40).
+  - *Logs:* Đóng vai trò là danh sách điều tra (Request Identification) - cung cấp chi tiết ngữ cảnh và trích xuất mã định danh duy nhất `correlation_id` của các request bị ảnh hưởng trong khung giờ đó.
+  - *Traces:* Đóng vai trò là kính hiển vi phân tích (Root Cause Localization) - dùng `correlation_id` để mở cây quan sát thác nước (waterfall tree), bóc tách từng span con (retrieval vs generation) để chỉ rõ chính xác **TẠI ĐÂU** và **BỘ PHẬN NÀO** gây ra sự cố.
 - **Vai trò của prompt version, token/cost, SLO hoặc rollback trong vận hành LLM:**
-- **Điều quan trọng nhất đã học:**
-- **Hạn chế hoặc phần chưa hoàn thành, nếu có:**
+  - *Prompt Versioning & Rollback:* Giúp quản lý prompt như mã nguồn phần mềm, tách biệt code khỏi cấu hình prompt. Cho phép A/B testing (như nhãn `baseline` vs `candidate`) và rollback tức thời về phiên bản ổn định (`production`) mà không cần redeploy hoặc can thiệp vào mã nguồn backend.
+  - *Token & Cost Tracking:* Mô hình ngôn ngữ tính phí dựa trên token; việc theo dõi tỷ lệ token input/output và chi phí USD thời gian thực giúp phát hiện sớm các lỗi lặp vô tận (infinite loop) hoặc prompt injection gây lãng phí ngân sách.
+  - *SLO & Error Budget:* Định lượng cam kết chất lượng dịch vụ đối với người dùng (ví dụ: 99.5% request hoàn thành dưới 3s). Error budget là thước đo rủi ro cho phép: khi ngân sách lỗi còn, đội ngũ có thể tự tin triển khai prompt/tính năng mới; khi ngân sách cạn, phải đóng băng release để ưu tiên tối ưu hiệu năng.
+- **Điều quan trọng nhất đã học:** Hiểu được kiến trúc toàn diện của một hệ thống LLMOps Observability production-ready: không chỉ đo lường server truyền thống (CPU, RAM, HTTP status) mà phải giám sát sâu sắc các chỉ số đặc thù của Generative AI (TTFT, token consumption, cost accumulation, retrieval latency, PII redaction, và prompt lifecycle management).
+- **Hạn chế hoặc phần chưa hoàn thành, nếu có:** Hiện tại hệ thống đang sử dụng FakeLLM và MockRAG trong môi trường giả lập cục bộ. Trong môi trường production thực tế, cần tích hợp vector database phân tán (như Qdrant, Pinecone hoặc Milvus) và triển khai Semantic Cache để tối ưu hóa chi phí và tốc độ truy vấn tri thức.
 
 ## 9. Checklist trước khi nộp
 
-- [ ] Kết quả và evidence thuộc commit SHA cuối.
-- [ ] Tất cả ảnh/output mở được bằng đường dẫn tương đối.
-- [ ] Incident evidence nối đúng metric → log → trace.
-- [ ] Trace/prompt evidence thuộc project Langfuse cá nhân và ảnh không lộ key/secret.
-- [ ] Repository chạy lại được theo README.
-- [ ] Không có secret, API key, PII thô hoặc evidence của người khác/lớp khác.
-- [ ] URL repo và commit SHA cuối đã được nộp trên LMS/Codelabs.
+- [x] Kết quả và evidence thuộc commit SHA cuối.
+- [x] Tất cả ảnh/output mở được bằng đường dẫn tương đối.
+- [x] Incident evidence nối đúng metric → log → trace.
+- [x] Trace/prompt evidence thuộc project Langfuse cá nhân và ảnh không lộ key/secret.
+- [x] Repository chạy lại được theo README.
+- [x] Không có secret, API key, PII thô hoặc evidence của người khác/lớp khác.
+- [x] URL repo và commit SHA cuối đã được nộp trên LMS/Codelabs.
