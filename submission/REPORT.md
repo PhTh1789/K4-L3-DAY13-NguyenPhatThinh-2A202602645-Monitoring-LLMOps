@@ -54,21 +54,38 @@
 
 ## 5. Tracing và prompt versioning
 
-- **Cách xác nhận traces do chính tôi tạo trong project cá nhân:**
+- **Cách xác nhận traces do chính tôi tạo trong project cá nhân:** Project Langfuse cá nhân mang tên `day13-k4-l3a-2A202602645` được cấu hình độc lập qua key cá nhân trong `.env`. Mọi trace đều đính kèm metadata `correlation_id`, `user_id_hash`, `env: dev` và danh sách tags `["lab", feature, "claude-sonnet-4-5"]`.
 - **Cấu trúc root/retrieval/generation observations:**
-- **Cách nối trace với log:**
-- **Prompt name:**
-- **Version/label baseline:**
-- **Version/label candidate:**
+  - *Root observation:* `lab-agent-run` (type: `agent`) bao bọc toàn bộ chu trình xử lý, lưu trữ ngữ cảnh request và metadata `correlation_id`.
+  - *Child observation 1:* `retrieval` (type: `retriever`) đo lường thời gian truy xuất từ RAG corpus, metadata có `query_preview` và `doc_count`.
+  - *Child observation 2:* `generation` (type: `generation`) bọc quá trình suy luận của LLM, liên kết với managed prompt, lưu trữ `model`, chi tiết `usage_details` (`input`, `output`, `total` tokens) và `cost_details` (`total` USD).
+- **Cách nối trace với log:** Chuỗi `correlation_id` định dạng `req-<8-hex>` do `CorrelationIdMiddleware` sinh ra được lưu đồng bộ vào trường `correlation_id` của structured log (`data/logs.jsonl`) và trường `metadata.correlation_id` của Langfuse trace. Khi có sự cố, ta chỉ cần copy `correlation_id` từ log dán vào ô tìm kiếm của Langfuse là định vị được trace ngay lập tức.
+- **Prompt name:** `day13-chat`
+- **Version/label baseline:** Version 1, labels: `baseline`, `production`. Template: `Feature={{feature}}\nDocs={{docs}}\nQuestion={{message}}`.
+- **Version/label candidate:** Version 2, label: `candidate`. Template: `Feature={{feature}}\nDocs={{docs}}\nQuestion={{message}}\nPlease keep answers concise and professional.`.
 - **Trace ID của mỗi version:**
+  - Version 1 (Baseline / Initial Production): Correlation ID `req-0c608c9c` (Session `s_v1`)
+  - Version 2 (Candidate / Promoted Production): Correlation ID `req-a2f7e7cc` (Session `s_v2`)
+  - Sau khi Rollback về Version 1: Correlation ID `req-1f8580b2` (Session `s_rollback`)
 - **Cách promote và rollback `production`:**
+  - *Promote:* Trên giao diện Langfuse (hoặc qua API `update_prompt`), gán label `production` cho Version 2. Ứng dụng tự động tải Version 2 cho các lượt request tiếp theo.
+  - *Rollback:* Khi cần phục hồi, chuyển lại label `production` sang Version 1 (`baseline`). Hệ thống ngay lập tức quay lại sử dụng Version 1 mà không cần sửa code hay khởi động lại ứng dụng.
 
 ## 6. Dashboard, SLO và alerts
 
-- **Dashboard và sáu panel:**
-- **SLO và lý do chọn:**
-- **Cách tính error budget:**
-- **Ba alert và runbook tương ứng:**
+- **Dashboard và sáu panel:** Dashboard được dựng tại route `/dashboard` (hoạt động trực tiếp trên server FastAPI) tuân thủ 100% contract `config/dashboard.yaml` đọc từ nguồn chuẩn `data/logs.jsonl`, time range 60 phút, tự động làm mới mỗi 30 giây gồm 6 panel:
+  1. `Latency percentiles and TTFT` (ms): Hiển thị P50, P95, P99 và TTFT P95 kèm đường ngưỡng `P95 <= 3000ms`.
+  2. `Request traffic` (requests/min): Biểu đồ lưu lượng request nhận được theo phút và tốc độ trung bình, ngưỡng `Rate >= 1 req/min`.
+  3. `Error rate and retrieval success` (%): Biểu đồ tròn tỉ lệ lỗi (ngưỡng `<= 2.0%`) và tỉ lệ retrieval thành công từ vector store.
+  4. `Cost over time` (USD): Biểu đồ chi phí tích lũy theo phút và số dư ngân sách còn lại, ngưỡng `Total <= $2.5 USD`.
+  5. `Input and output tokens` (tokens): Phân tách lượng token đầu vào (input) và token sinh ra (output), ngưỡng `<= 50,000`.
+  6. `Quality proxy` (score 0.0 - 1.0): Điểm chất lượng trung bình dựa trên heuristic (độ dài, sự hiện diện context, tính liên quan câu hỏi), ngưỡng `>= 0.75`.
+- **SLO và lý do chọn:** Primary SLO là `fast_successful_requests`: Tỉ lệ request thành công có độ trễ `<= 3000ms` phải đạt tối thiểu `99.5%` trong chu kỳ rolling window 28 ngày (`target_percent: 99.5%`). Lý do chọn: Ngưỡng 3 giây là giới hạn tâm lý phản hồi tối ưu của người dùng khi hỏi đáp với AI chatbot; mục tiêu 99.5% vừa bảo đảm trải nghiệm ổn định cho đa số người dùng vừa chừa biên độ an toàn cho các cập nhật mô hình.
+- **Cách tính error budget:** Error budget = `100% - Target% = 100% - 99.5% = 0.5%`. Nghĩa là trong toàn bộ request nhận được trong 28 ngày, tối đa 0.5% request được phép chậm hơn 3 giây hoặc bị lỗi HTTP 500. Ví dụ: Với 10,000 requests/tháng, ngân sách lỗi cho phép tối đa 50 requests không đạt chuẩn. Khi error budget bị cạn kiệt (> 0.5%), đội ngũ phải tạm hoãn phát hành prompt/tính năng mới để ưu tiên khắc phục hiệu năng.
+- **Ba alert và runbook tương ứng:** Cấu hình trong `config/alert_rules.yaml` và chi tiết runbook tại `docs/alerts.md`:
+  1. `high_latency_p95` (Warning, duration 5m): P95 latency > 3000ms liên tục trong 5 phút. Runbook: Kiểm tra panel 1 xem TTFT có tăng không, lọc `data/logs.jsonl` tìm correlation ID có latency cao, mở Langfuse waterfall xem span `retrieval` hay `generation` bị chậm; tạm thời bật cache RAG hoặc giảm top_k document.
+  2. `high_error_rate` (Critical, duration 3m): Error rate > 2% hoặc retrieval success < 90% trong 3 phút. Runbook: Kiểm tra panel 3 xác định loại lỗi, lọc log `request_failed`, mở trace định vị exception ở vector store; bật circuit breaker chuyển sang degraded mode (trả về fallback tĩnh) thay vì ném lỗi 500.
+  3. `daily_cost_spike` (Warning, duration 5m): Tốc độ chi phí > $0.05/phút hoặc tổng chi phí vượt $2.5 USD. Runbook: Kiểm tra panel 4 & 5 xem output token có tăng đột biến không, lọc log tìm `tokens_out > 500`, mở trace xem prompt version nào đang chạy; áp đặt max_tokens hoặc rollback prompt v2 về v1 nếu câu trả lời bị lặp từ.
 
 ## 7. Điều tra challenge
 
