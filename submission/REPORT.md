@@ -8,7 +8,7 @@
 - **MSSV:** 2A202602645
 - **Lớp:** K4-L3A
 - **Repository URL:** `https://github.com/PhTh1789/K4-L3-DAY13-NguyenPhatThinh-2A202602645-Monitoring-LLMOps`
-- **Commit SHA cuối:** `2d0094bb2fc297ac77893a9fd2961c9b935de35f`
+- **Commit SHA cuối:** `296bdce467b4804e25efca59edc334ac0db18f62`
 - **Challenge ID:** `day13-k4-l3a-monitoring-llmops-v1`
 - **Tên project Langfuse cá nhân:** `day13-k4-l3a-2A202602645`
 
@@ -16,22 +16,22 @@
 
 Điền đúng đường dẫn tới evidence thực tế. Có thể đổi tên hoặc dùng nhiều ảnh nếu cần.
 
-| Evidence            | Đường dẫn                                                                 |
-| ------------------- | ------------------------------------------------------------------------- |
-| Pytest cuối         | [evidence/01-pytest.png](evidence/01-pytest.png)                          |
-| Log validator       | [evidence/02-log-validator.png](evidence/02-log-validator.png)           |
+| Evidence            | Đường dẫn                                                                  |
+| ------------------- | -------------------------------------------------------------------------- |
+| Pytest cuối         | [evidence/01-pytest.png](evidence/01-pytest.png)                           |
+| Log validator       | [evidence/02-log-validator.png](evidence/02-log-validator.png)             |
 | Dashboard validator | [evidence/03-dashboard-validator.png](evidence/03-dashboard-validator.png) |
-| Structured log      | [evidence/04-structured-log.png](evidence/04-structured-log.png)          |
-| PII redaction       | [evidence/05-pii-redaction.png](evidence/05-pii-redaction.png)           |
-| Trace list          | [evidence/06-trace-list.png](evidence/06-trace-list.png)                  |
+| Structured log      | [evidence/04-structured-log.png](evidence/04-structured-log.png)           |
+| PII redaction       | [evidence/05-pii-redaction.png](evidence/05-pii-redaction.png)             |
+| Trace list          | [evidence/06-trace-list.png](evidence/06-trace-list.png)                   |
 | Trace waterfall     | [evidence/07-trace-waterfall.png](evidence/07-trace-waterfall.png)         |
-| Trace metadata      | [evidence/08-trace-metadata.png](evidence/08-trace-metadata.png)          |
+| Trace metadata      | [evidence/08-trace-metadata.png](evidence/08-trace-metadata.png)           |
 | Prompt versions     | [evidence/09-prompt-versions.png](evidence/09-prompt-versions.png)         |
 | Prompt rollback     | [evidence/10-prompt-rollback.png](evidence/10-prompt-rollback.png)         |
-| Dashboard runtime   | [evidence/11-dashboard-overview.png](evidence/11-dashboard-overview.png)  |
+| Dashboard runtime   | [evidence/11-dashboard-overview.png](evidence/11-dashboard-overview.png)   |
 | Incident metric     | [evidence/12-incident-metric.png](evidence/12-incident-metric.png)         |
-| Incident log        | [evidence/13-incident-log.png](evidence/13-incident-log.png)              |
-| Incident trace      | [evidence/14-incident-trace.png](evidence/14-incident-trace.png)          |
+| Incident log        | [evidence/13-incident-log.png](evidence/13-incident-log.png)               |
+| Incident trace      | [evidence/14-incident-trace.png](evidence/14-incident-trace.png)           |
 
 ## 3. Kết quả kỹ thuật
 
